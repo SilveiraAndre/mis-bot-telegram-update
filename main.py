@@ -21,26 +21,6 @@ def fechar_conexao(conexao):
 # validate the API Token here 
 bot = telebot.TeleBot(token)
 
-# dict with all customers 
-carteiras = [
-    {
-        "Carteira": "CeA", 
-        "ScriptExec": "EXEC [dbo].[PRC_VISAO_CARTEIRA_CEA]",
-        "ScriptSelect": "select count(distinct id_cliente) from TB_VISAO_CARTEIRA_CEA with(nolock) where cast(DT_CADASTRO_CLI as date) = cast(getdate() as date)"
-    },
-    {
-        "Carteira": "Movida_PF", 
-        "ScriptExec": "EXEC [dbo].[PRC_VISAO_CARTEIRA_MOVIDA_PF]",
-        "ScriptSelect": "select count(distinct id_cliente) from TB_VISAO_CARTEIRA_MOVIDA_PF with(nolock) where cast(DT_CADASTRO_CLIENTE as date) = cast(getdate() as date)"
-    },
-    {
-        "Carteira": "RVT", 
-        "ScriptExec": "EXEC [dbo].[PRC_VISAO_CARTEIRA_RVT]",
-        "ScriptSelect": "select count(distinct id_cliente) from TB_VISAO_CARTEIRA_RVT with(nolock) where cast(DT_CADASTRO_CLIENTE as date) = cast(getdate() as date)"
-    }
-
-]
-
 # Function that verifies if any message is inputted here 
 def verificar(mensagem):
     return True
@@ -48,20 +28,31 @@ def verificar(mensagem):
 def execCea(mensagem, carteira, conexao, cursor):
     try:
         bot.send_message(mensagem.chat.id, f'Atualização da base de clientes da {carteira} em andamento...')
-        query_exec = [c["ScriptExec"] for c in carteiras if c["Carteira"] == carteira][0]
-        cursor.execute(query_exec)
-        cursor.commit()
+        query_exec = pd.read_sql_query(f"select nm_prc_tabela from tb_tabela_visao_carteira where nm_carteira = '{carteira}'",conexao)
+        cursor.execute('exec ' + query_exec.iloc[0,0])
+        cursor.commit()        
+        
         bot.send_message(mensagem.chat.id, 'Base de clientes atualizada!')
-        query_select = [c["ScriptSelect"] for c in carteiras if c["Carteira"] == carteira][0]
-        df1 = pd.read_sql_query(query_select, conexao)
-        df1 = df1.iloc[0,0]
-        bot.send_message(mensagem.chat.id, f'{df1} cliente novos!')
+        # recebe nome da tabela pela variavel 
+        query_select_nm_tabela = pd.read_sql_query(f"select nm_tabela from tb_tabela_visao_carteira where nm_carteira = '{carteira}'",conexao)
+        # conta contratos a partir da tabela 
+        if carteira == 'CEA':
+            query_cnt = pd.read_sql_query(f"select count(distinct id_contrato) from {query_select_nm_tabela.iloc[0,0]} where cast(dt_cadastro_cli as date) = cast(getdate() as date)",conexao)
+            bot.send_message(mensagem.chat.id,f"{query_cnt.iloc[0,0]} clientes novos!")               
+        if carteira == 'MOVIDA_PF':
+            query_cnt = pd.read_sql_query(f"select count(distinct id_contrato) from {query_select_nm_tabela.iloc[0,0]} where cast(dt_cadastro_contrato as date) = cast(getdate() as date)",conexao)
+            bot.send_message(mensagem.chat.id,f"{query_cnt.iloc[0,0]} contratos novos!")               
+        if carteira == 'PORTO_SEGURO_CARRO_FACIL':
+            query_cnt = pd.read_sql_query(f"select count(distinct id_contrato) from {query_select_nm_tabela.iloc[0,0]} where cast(DT_CADASTRO_CONT as date) = cast(getdate() as date)",conexao)
+            bot.send_message(mensagem.chat.id,f"{query_cnt.iloc[0,0]} contratos novos!")               
+
+        
     except Exception as e: 
         bot.send_message(mensagem.chat.id, f'Ocorreu um erro: {str(e)}')
     finally:
         fechar_conexao(conexao)
 
-@bot.message_handler(commands=["CeA","Movida_PF","RVT"])
+@bot.message_handler(commands=["CEA","MOVIDA_PF"])
 def processa_carteira(mensagem):
     conexao, cursor = conecta_banco()
     carteira_selecionada = mensagem.text[1:] 
@@ -73,9 +64,9 @@ def opcao1(mensagem):
     conexao, cursor = conecta_banco()
     textovc = """
     Selecione a carteira 
-/CeA
-/Movida_PF    
-/RVT
+/CEA
+/MOVIDA_PF    
+/PORTO_SEGURO_CARRO_FACIL
 """
     bot.send_message(mensagem.chat.id, textovc)
 
